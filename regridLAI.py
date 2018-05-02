@@ -128,7 +128,7 @@ if __name__ == "__main__":
   #  print len(path2files)
 
     path2dest = []
-    for fname in path2files[:1]:
+    for fname in path2files:
         dummy = fname.split('/')
         destfile = dummy[-1].split('.')[0]+'_%sx%s.nc' % (res,res)
         path2dest.append('/'.join(fname.split('/')[:5])+'/LAI_%sx%s/%s' % (res,res,destfile))
