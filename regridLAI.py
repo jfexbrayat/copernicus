@@ -21,6 +21,8 @@ def regridLAI(path2orig,path2dest,latres,lonres,variables = ['LAI','LAI_ERR']):
     - variables : which variables to regrid
     """
 
+    print "Regridding file " + path2orig.split('/')[-1]
+
     # open file
     nc = Dataset(path2orig)
 
@@ -57,41 +59,75 @@ def regridLAI(path2orig,path2dest,latres,lonres,variables = ['LAI','LAI_ERR']):
 
     ncdest.createDimension('lon',size=destlon.size)
     ncdest.createDimension('lat',size=destlat.size)
+    ncdest.createDimension('time',size=None)
 
     ncdest.createVariable('lat','d',dimensions=('lat'))
     ncdest.variables['lat'][:] = destlat
     ncdest.variables['lat'].units='degrees_north'
+    ncdest.variables['lat'].latitude='latitude'
+
 
     ncdest.createVariable('lon','d',dimensions=('lon'))
     ncdest.variables['lon'][:] = destlon
     ncdest.variables['lon'].units='degrees_east'
+    ncdest.variables['lon'].latitude='longitude'
 
-    for varname in variables:
-        ncdest.createVariable(varname,'d',dimensions=('lat','lon'))
+    ncdest.createVariable('time','d',dimensions=('time'))
+    ncdest.variables['time'][:] = nc.variables['time'][:]
+    ncdest.variables['time'].units = nc.variables['time'].units
+    ncdest.variables['time'].long_name = nc.variables['time'].long_name
+
+    ncdest.createVariable('fraction','d',dimensions=('time','lat','lon'))
+    ncdest.variables['fraction'].units = '%'
+    ncdest.variables['fraction'].long_name = 'fraction of regridded cell which had data at original resolution'
+
+    for va,varname in enumerate(variables):
+        print "Regridding variable %s ... " % (varname)
+        ncdest.createVariable(varname,'d',dimensions=('time','lat','lon'))
         ncdest.variables[varname].missing_value = -9999.
         ncdest.variables[varname].long_name = nc.variables[varname].long_name
       
-
         # iterate grid
         target = np.zeros([destlat.size,destlon.size]) - 9999.
+        if va == 0:
+            fraction = np.zeros(target.shape)-9999.
         for la, latval in enumerate(destlat):  
             for lo, lonval in enumerate(destlon):
-                print la, lo
                 slcarea = areas[(la*sizelat):((la+1)*sizelat),(lo*sizelon):((lo+1)*sizelon)]
-                slcdata = nc.variables['LAI'][0,(la*sizelat):((la+1)*sizelat),(lo*sizelon):((lo+1)*sizelon)]
+                slcdata = nc.variables[varname][0,(la*sizelat):((la+1)*sizelat),(lo*sizelon):((lo+1)*sizelon)]
                 if 'mask' in dir(slcdata):
-                    if slcdata.mask.sum() <= 0.5*slcdata.size:
+                    if slcdata.mask.sum() != slcdata.size:
                         target[la,lo] = (slcdata*slcarea).sum()/(~slcdata.mask*slcarea).sum()
+                # first pass, extract the fraction of pixel with valid data
+                    if va == 0:
+                      #  fraction[la,lo] = (~slcdata.mask).sum()/(float(slcdata.size))
+                        fraction[la,lo] = (~slcdata.mask*slcarea).sum()/(slcarea.sum())  
                 else:
                     target[la,lo] = (slcdata*slcarea).sum()/slcarea.sum()
-        ncdest.variables[varname][:] = target
+                    if va == 0:
+                        fraction[la,lo]=1.
+        ncdest.variables[varname][:] = np.expand_dims(target,0)
 
+        if va == 0:
+            ncdest.variables['fraction'][:] = np.expand_dims(fraction*100.,0)
     nc.close();ncdest.sync();ncdest.close()
-    print "no problem till now"    
     return 0
     
 if __name__ == "__main__":
 
-    path2file = '/disk/scratch/local.2/jexbraya/dummy/copernicus/LAI_201801130000_GLOBE_PROBAV_V1.5.1/c_gls_LAI_201801130000_GLOBE_PROBAV_V1.5.1.nc'
-    regridLAI(path2file,'test.nc',1,1)
+    import sys
+    from sklearn.externals.joblib import Parallel, delayed
+
+    res = sys.argv[1]
+
+    path2files = glob.glob('/disk/scratch/local.2/copernicus/LAI/*/*nc');path2files.sort()
+    path2dest = []
+    for fname in path2files:
+        dummy = fname.split('/')
+        destfile = dummy[-1].split('.')[0]+'_%sx%s.nc' % (res,res)
+        path2dest.append('/'.join(fname.split('/')[:5])+'/LAI_%sx%s/%s' % (res,res,destfile))
+
+    Parallel(n_jobs = 10)(delayed(regridLAI)(src,target,int(res),int(res)) for src,target in zip(path2files,path2dest))
+
+    
 
