@@ -21,8 +21,6 @@ def regridLAI(path2orig,path2dest,latres,lonres,variables = ['LAI','LAI_ERR']):
     - variables : which variables to regrid
     """
 
-    print len(glob.glob(path2dest))
-    print glob.glob(path2dest)
     if len(glob.glob(path2dest)) > 0:  
         print 'Destination file "%s" already exists, please remove before proceeding' % (glob.glob(path2dest)[0])
 
@@ -125,12 +123,12 @@ if __name__ == "__main__":
     res = sys.argv[1]
 
     path2files = glob.glob('/disk/scratch/local.2/copernicus/LAI/*/*nc');path2files.sort()
-    #path2files = path2files[:1]
+   # path2files = path2files[:1]
 
   #  print len(path2files)
 
     path2dest = []
-    for fname in path2files:
+    for fname in path2files[:1]:
         dummy = fname.split('/')
         destfile = dummy[-1].split('.')[0]+'_%sx%s.nc' % (res,res)
         path2dest.append('/'.join(fname.split('/')[:5])+'/LAI_%sx%s/%s' % (res,res,destfile))
