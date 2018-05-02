@@ -121,13 +121,16 @@ if __name__ == "__main__":
     res = sys.argv[1]
 
     path2files = glob.glob('/disk/scratch/local.2/copernicus/LAI/*/*nc');path2files.sort()
+
+    print len(path2files)
+
     path2dest = []
     for fname in path2files:
         dummy = fname.split('/')
         destfile = dummy[-1].split('.')[0]+'_%sx%s.nc' % (res,res)
         path2dest.append('/'.join(fname.split('/')[:5])+'/LAI_%sx%s/%s' % (res,res,destfile))
 
-    Parallel(n_jobs = 10)(delayed(regridLAI)(src,target,int(res),int(res)) for src,target in zip(path2files,path2dest))
+    Parallel(n_jobs = 10)(delayed(regridLAI)(src,target,float(res),float(res)) for src,target in zip(path2files,path2dest))
 
     
 
