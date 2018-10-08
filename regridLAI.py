@@ -10,7 +10,7 @@ import glob, os
 
 def regridLAI(path2orig,path2dest,latres,lonres,variables = ['LAI','LAI_ERR']):
     """
-    This function regrids a Copernicus LAI file onto a regular grid with same 
+    This function regrids a Copernicus LAI file onto a regular grid with same
     extent and resolution provided in the arguments.
 
 
@@ -21,7 +21,7 @@ def regridLAI(path2orig,path2dest,latres,lonres,variables = ['LAI','LAI_ERR']):
     - variables : which variables to regrid
     """
 
-    if len(glob.glob(path2dest)) > 0:  
+    if len(glob.glob(path2dest)) > 0:
         print 'Destination file "%s" already exists, please remove before proceeding' % (glob.glob(path2dest)[0])
 
     else:
@@ -51,7 +51,7 @@ def regridLAI(path2orig,path2dest,latres,lonres,variables = ['LAI','LAI_ERR']):
 
         #calculate grid cell area
         areas = np.zeros([origlat.size,origlon.size])
-        for la,latval in enumerate(origlat):  
+        for la,latval in enumerate(origlat):
             areas[la]= (6371e3)**2 * ( np.deg2rad(0+origlonres/2.)-np.deg2rad(0-origlonres/2.) ) * (np.sin(np.deg2rad(latval+origlatres/2.))-np.sin(np.deg2rad(latval-origlatres/2.)))
 
     #create the destination file
@@ -87,12 +87,12 @@ def regridLAI(path2orig,path2dest,latres,lonres,variables = ['LAI','LAI_ERR']):
             ncdest.createVariable(varname,'d',dimensions=('time','lat','lon'))
             ncdest.variables[varname].missing_value = -9999.
             ncdest.variables[varname].long_name = nc.variables[varname].long_name
-          
+
             # iterate grid
             target = np.zeros([destlat.size,destlon.size]) - 9999.
             if va == 0:
                 fraction = np.zeros(target.shape)-9999.
-            for la, latval in enumerate(destlat):  
+            for la, latval in enumerate(destlat):
                 for lo, lonval in enumerate(destlon):
                     slcarea = areas[(la*sizelat):((la+1)*sizelat),(lo*sizelon):((lo+1)*sizelon)]
                     slcdata = nc.variables[varname][0,(la*sizelat):((la+1)*sizelat),(lo*sizelon):((lo+1)*sizelon)]
@@ -102,7 +102,7 @@ def regridLAI(path2orig,path2dest,latres,lonres,variables = ['LAI','LAI_ERR']):
                     # first pass, extract the fraction of pixel with valid data
                         if va == 0:
                           #  fraction[la,lo] = (~slcdata.mask).sum()/(float(slcdata.size))
-                            fraction[la,lo] = (~slcdata.mask*slcarea).sum()/(slcarea.sum())  
+                            fraction[la,lo] = (~slcdata.mask*slcarea).sum()/(slcarea.sum())
                     else:
                         target[la,lo] = (slcdata*slcarea).sum()/slcarea.sum()
                         if va == 0:
@@ -114,26 +114,25 @@ def regridLAI(path2orig,path2dest,latres,lonres,variables = ['LAI','LAI_ERR']):
         ncdest.sync();ncdest.close()
         nc.close()
     return 0
-    
+
 if __name__ == "__main__":
 
     import sys
     from sklearn.externals.joblib import Parallel, delayed
 
+    # read required resolution in degree from command line
     res = sys.argv[1]
 
+    #create a list of full paths to src files
     path2files = glob.glob('/disk/scratch/local.2/copernicus/LAI/*/*nc');path2files.sort()
    # path2files = path2files[:1]
 
-  #  print len(path2files)
-
+    # build the list of destination files
     path2dest = []
     for fname in path2files:
         dummy = fname.split('/')
         destfile = dummy[-1].split('.')[0]+'_%sx%s.nc' % (res,res)
         path2dest.append('/'.join(fname.split('/')[:5])+'/LAI_%sx%s/%s' % (res,res,destfile))
 
+    # call regridLAI function using Parallel to loop over the source / destination files
     Parallel(n_jobs = 10)(delayed(regridLAI)(src,target,float(res),float(res)) for src,target in zip(path2files,path2dest))
-
-    
-
