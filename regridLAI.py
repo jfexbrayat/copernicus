@@ -8,7 +8,7 @@ from netCDF4 import Dataset
 import numpy as np
 import glob, os
 
-def regridLAI(path2orig,path2dest,latres,lonres,variables = ['LAI','LAI_ERR']):
+def regridLAI(path2orig,path2dest,latres,lonres,variables = ['LAI','LAI_ERR'], lcmask = None):
     """
     This function regrids a Copernicus LAI file onto a regular grid with same
     extent and resolution provided in the arguments.
@@ -19,7 +19,7 @@ def regridLAI(path2orig,path2dest,latres,lonres,variables = ['LAI','LAI_ERR']):
     - latres    : latitude resolution of target grid
     - lonres    : longitude resolution of target grid
     - variables : which variables to regrid
-    - mask      : to only consider pixels according to a mask of e.g. land cover
+    - lcmask    : to only consider pixels according to a land cover mask
     """
 
     if len(glob.glob(path2dest)) > 0:
@@ -81,7 +81,7 @@ def regridLAI(path2orig,path2dest,latres,lonres,variables = ['LAI','LAI_ERR']):
             ncdest.variables['time'].long_name = nc.variables['time'].long_name
 
         ncdest.createVariable('fraction','d',dimensions=nc.variables[variables[0]].dimensions)
-        ncdest.variables['fraction'].units = '%'
+        ncdest.variables['fraction'].units = '-'
         ncdest.variables['fraction'].long_name = 'fraction of regridded cell which had data at original resolution'
 
         for va,varname in enumerate(variables):
@@ -90,35 +90,53 @@ def regridLAI(path2orig,path2dest,latres,lonres,variables = ['LAI','LAI_ERR']):
             ncdest.variables[varname].missing_value = -9999.
             ncdest.variables[varname].long_name = nc.variables[varname].long_name
 
-            # iterate grid
-            target = np.zeros([destlat.size,destlon.size]) - 9999.
+            # create target grid to hold regridded data
+            # first check whether there's a time dimension
+            if 'time' in nc.dimensions:
+                target = np.zeros([1,destlat.size,destlon.size]) - 9999.
+            else:
+                target = np.zeros([destlat.size,destlon.size]) - 9999.
+            #if it's the first variable, create the empty array hold the fraction of data
             if va == 0:
-                fraction = np.zeros(target.shape)-9999.
+                fraction = np.zeros(target.shape)
             counter = 0
             for la, latval in enumerate(destlat):
                 for lo, lonval in enumerate(destlon):
                     counter+=1
                     print '\rRegridding pixel %i / %i' % (counter, len(destlat)*len(destlon)),
                     slcarea = areas[(la*sizelat):((la+1)*sizelat),(lo*sizelon):((lo+1)*sizelon)]
-                    if 'time' in nc.dimensions:
-                        slcdata = nc.variables[varname][0,(la*sizelat):((la+1)*sizelat),(lo*sizelon):((lo+1)*sizelon)]
+                    #if there's a land cover mask, extract the data
+                    if lcmask is not None:
+                        slcmask = lcmask[(la*sizelat):((la+1)*sizelat),(lo*sizelon):((lo+1)*sizelon)]
                     else:
-                        slcdata = nc.variables[varname][(la*sizelat):((la+1)*sizelat),(lo*sizelon):((lo+1)*sizelon)]
-                    if 'mask' in dir(slcdata):
-                        if slcdata.mask.sum() != slcdata.size:
-                            target[la,lo] = (slcdata*slcarea).sum()/(~slcdata.mask*slcarea).sum()
-                    # first pass, extract the fraction of pixel with valid data
-                        if va == 0:
-                          #  fraction[la,lo] = (~slcdata.mask).sum()/(float(slcdata.size))
-                            fraction[la,lo] = (~slcdata.mask*slcarea).sum()/(slcarea.sum())
-                    else:
-                        target[la,lo] = (slcdata*slcarea).sum()/slcarea.sum()
-                        if va == 0:
-                            fraction[la,lo]=1.
-            ncdest.variables[varname][:] = np.expand_dims(target,0)
+                        slcmask = np.ones([sizelat,sizelon],dtype='bool')
+                    #check that there's data for the desired land cover
+                    if slcmask.sum() != 0:
+                        # extract the high res pixels inside the destinatino pixel
+                        if 'time' in nc.dimensions:
+                            slcdata = nc.variables[varname][0,(la*sizelat):((la+1)*sizelat),(lo*sizelon):((lo+1)*sizelon)]
+                        else:
+                            slcdata = nc.variables[varname][(la*sizelat):((la+1)*sizelat),(lo*sizelon):((lo+1)*sizelon)]
+                        if 'mask' in dir(slcdata):
+                            #replace the mask where the land cover is not taken into account
+                            slcdata.mask[~slcmask] = True
+                            if slcdata.mask.sum() != slcdata.size:
+                                target[la,lo] = (slcdata*slcarea).sum()/(~slcdata.mask*slcarea).sum()
+                        # first pass, extract the fraction of pixel with valid data
+                            if va == 0:
+                              #  fraction[la,lo] = (~slcdata.mask).sum()/(float(slcdata.size))
+                                if 'time' in nc.dimensions:
+                                    fraction[0,la,lo] = (~slcdata.mask*slcarea).sum()/(slcarea.sum())
+                                else:
+                                    fraction[la,lo] = (~slcdata.mask*slcarea).sum()/(slcarea.sum())
+                        else:
+                            target[la,lo] = (slcdata*slcarea).sum()/slcarea.sum()
+                            if va == 0:
+                                fraction[la,lo]=1.
+            ncdest.variables[varname][:] = target
 
             if va == 0:
-                ncdest.variables['fraction'][:] = np.expand_dims(fraction*100.,0)
+                ncdest.variables['fraction'][:] = fraction
         ncdest.sync();ncdest.close()
         nc.close()
     return 0
