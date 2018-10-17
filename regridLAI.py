@@ -1,4 +1,7 @@
 """
+17/10/2018 - JFE
+Added the option to use a mask to filter by land cover
+
 01/05/2018 - JFE
 This script includes a function to regrid Copernicus LAI data
 to the desired spatial resolution.
@@ -19,7 +22,8 @@ def regridLAI(path2orig,path2dest,latres,lonres,variables = ['LAI','LAI_ERR'], l
     - latres    : latitude resolution of target grid
     - lonres    : longitude resolution of target grid
     - variables : which variables to regrid
-    - lcmask    : to only consider pixels according to a land cover mask
+    - lcmask    : to only consider pixels according to a land cover mask, 
+                  must be a boolean array with same shape as variables in source data
     """
 
     if len(glob.glob(path2dest)) > 0:
