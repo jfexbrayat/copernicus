@@ -19,6 +19,7 @@ def regridLAI(path2orig,path2dest,latres,lonres,variables = ['LAI','LAI_ERR']):
     - latres    : latitude resolution of target grid
     - lonres    : longitude resolution of target grid
     - variables : which variables to regrid
+    - mask      : to only consider pixels according to a mask of e.g. land cover
     """
 
     if len(glob.glob(path2dest)) > 0:
@@ -58,33 +59,34 @@ def regridLAI(path2orig,path2dest,latres,lonres,variables = ['LAI','LAI_ERR']):
 
         ncdest = Dataset(path2dest,'w')
 
-        ncdest.createDimension('lon',size=destlon.size)
+        #create dimensions and corresponding variables
         ncdest.createDimension('lat',size=destlat.size)
-        ncdest.createDimension('time',size=None)
-
         ncdest.createVariable('lat','d',dimensions=('lat'))
         ncdest.variables['lat'][:] = destlat
         ncdest.variables['lat'].units='degrees_north'
         ncdest.variables['lat'].latitude='latitude'
 
-
+        ncdest.createDimension('lon',size=destlon.size)
         ncdest.createVariable('lon','d',dimensions=('lon'))
         ncdest.variables['lon'][:] = destlon
         ncdest.variables['lon'].units='degrees_east'
         ncdest.variables['lon'].latitude='longitude'
 
-        ncdest.createVariable('time','d',dimensions=('time'))
-        ncdest.variables['time'][:] = nc.variables['time'][:]
-        ncdest.variables['time'].units = nc.variables['time'].units
-        ncdest.variables['time'].long_name = nc.variables['time'].long_name
+        #query for time as it is not in the 300m files
+        if 'time' in nc.dimensions:
+            ncdest.createDimension('time',size=None)
+            ncdest.createVariable('time','d',dimensions=('time'))
+            ncdest.variables['time'][:] = nc.variables['time'][:]
+            ncdest.variables['time'].units = nc.variables['time'].units
+            ncdest.variables['time'].long_name = nc.variables['time'].long_name
 
-        ncdest.createVariable('fraction','d',dimensions=('time','lat','lon'))
+        ncdest.createVariable('fraction','d',dimensions=nc.variables[variables[0]].dimensions)
         ncdest.variables['fraction'].units = '%'
         ncdest.variables['fraction'].long_name = 'fraction of regridded cell which had data at original resolution'
 
         for va,varname in enumerate(variables):
             print "Regridding variable %s ... " % (varname)
-            ncdest.createVariable(varname,'d',dimensions=('time','lat','lon'))
+            ncdest.createVariable(varname,'d',dimensions=nc.variables[varname].dimensions)
             ncdest.variables[varname].missing_value = -9999.
             ncdest.variables[varname].long_name = nc.variables[varname].long_name
 
@@ -92,10 +94,16 @@ def regridLAI(path2orig,path2dest,latres,lonres,variables = ['LAI','LAI_ERR']):
             target = np.zeros([destlat.size,destlon.size]) - 9999.
             if va == 0:
                 fraction = np.zeros(target.shape)-9999.
+            counter = 0
             for la, latval in enumerate(destlat):
                 for lo, lonval in enumerate(destlon):
+                    counter+=1
+                    print '\rRegridding pixel %i / %i' % (counter, len(destlat)*len(destlon)),
                     slcarea = areas[(la*sizelat):((la+1)*sizelat),(lo*sizelon):((lo+1)*sizelon)]
-                    slcdata = nc.variables[varname][0,(la*sizelat):((la+1)*sizelat),(lo*sizelon):((lo+1)*sizelon)]
+                    if 'time' in nc.dimensions:
+                        slcdata = nc.variables[varname][0,(la*sizelat):((la+1)*sizelat),(lo*sizelon):((lo+1)*sizelon)]
+                    else:
+                        slcdata = nc.variables[varname][(la*sizelat):((la+1)*sizelat),(lo*sizelon):((lo+1)*sizelon)]
                     if 'mask' in dir(slcdata):
                         if slcdata.mask.sum() != slcdata.size:
                             target[la,lo] = (slcdata*slcarea).sum()/(~slcdata.mask*slcarea).sum()
@@ -120,19 +128,17 @@ if __name__ == "__main__":
     import sys
     from sklearn.externals.joblib import Parallel, delayed
 
-    # read required resolution in degree from command line
     res = sys.argv[1]
 
-    #create a list of full paths to src files
     path2files = glob.glob('/disk/scratch/local.2/copernicus/LAI/*/*nc');path2files.sort()
    # path2files = path2files[:1]
 
-    # build the list of destination files
+  #  print len(path2files)
+
     path2dest = []
     for fname in path2files:
         dummy = fname.split('/')
         destfile = dummy[-1].split('.')[0]+'_%sx%s.nc' % (res,res)
         path2dest.append('/'.join(fname.split('/')[:5])+'/LAI_%sx%s/%s' % (res,res,destfile))
 
-    # call regridLAI function using Parallel to loop over the source / destination files
     Parallel(n_jobs = 10)(delayed(regridLAI)(src,target,float(res),float(res)) for src,target in zip(path2files,path2dest))
